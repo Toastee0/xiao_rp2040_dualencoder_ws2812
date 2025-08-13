@@ -20,7 +20,7 @@ Write-Host "Using system ninja" -ForegroundColor Yellow
 Write-Host "Pico SDK: $env:PICO_SDK_PATH" -ForegroundColor Yellow
 
 # Navigate to project directory
-Set-Location "C:\picoprojects\breakout_encoder"
+Set-Location "C:\picoprojects\xiao_rp2040_dualencoder_ws2812\"
 
 # Handle build directory
 if ($Clean -or !(Test-Path "build")) {
@@ -55,7 +55,7 @@ if ($needsConfig) {
     
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Configuration failed!" -ForegroundColor Red
-        Set-Location "C:\picoprojects\breakout_encoder\"
+        Set-Location "C:\picoprojects\xiao_rp2040_dualencoder_ws2812\"
         exit 1
     }
     Write-Host "Configuration successful!" -ForegroundColor Green
@@ -75,7 +75,7 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # Return to project directory
-Set-Location "C:\picoprojects\breakout_encoder\"
+Set-Location "C:\picoprojects\xiao_rp2040_dualencoder_ws2812\"
 
 Write-Host ""
 Write-Host "Usage:" -ForegroundColor Cyan
