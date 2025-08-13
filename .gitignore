@@ -1,0 +1,58 @@
+# Build directories
+build/
+*/build/
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!pico_sdk_import.cmake
+
+# Generated files
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+*.dis
+
+# IDE files
+.vscode/
+.vs/
+*.code-workspace
+
+# Pico SDK (if locally installed)
+pico-sdk/
+pico-examples/
+pico-extras/
+
+# Toolchain (if locally installed)
+bin/
+tools/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.DS_Store
+Thumbs.db
+
+# Debug files
+*.pdb
+*.gdb
+
+# Logs
+*.log
+
+# Python cache (if using any Python tools)
+__pycache__/
+*.pyc
+*.pyo
+
+# Backup files
+*.bak
+*.backup
+*.orig
