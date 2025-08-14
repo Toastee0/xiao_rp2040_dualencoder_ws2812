@@ -8,7 +8,25 @@
 
 #include "main.hpp"
 #include "pico/bootrom.h"
+#include "pico/multicore.h"
 #include <stdio.h>
+
+// ===================================================================
+// ================ DUAL CORE FUNCTIONS ============================
+// ===================================================================
+
+// Core 1 entry point - dedicated to LED animations
+void core1_entry() {
+    printf("Core 1 started - handling LED animations\n");
+    
+    while (true) {
+        // Update WS2812 LED animations on Core 1
+        update_ws2812_system();
+        
+        // No sleep/delay - let the LED update function control timing
+        // This allows for smooth animations while Core 0 handles interrupts
+    }
+}
 
 // ===================================================================
 // ================ SYSTEM GLOBALS ==================================
@@ -82,6 +100,11 @@ bool init_systems() {
     uint8_t ready_encoders = get_ready_encoder_count();
     if (ready_encoders > 0) {
         printf("✓ %d of %d encoders ready!\n", ready_encoders, NUMBER_OF_ENCODERS);
+        
+        // Launch Core 1 for LED animations
+        printf("Launching Core 1 for LED animation processing...\n");
+        multicore_launch_core1(core1_entry);
+        
         system_ready = true;
     } else {
         printf("✗ No encoders found!\n");
@@ -171,11 +194,15 @@ void handle_serial_commands() {
         printf("  'a2' - Set encoder 2 to address 0x0E\n");
         printf("  'a3' - Set encoder 3 to address 0x0D\n");
         printf("  'a4' - Set encoder 4 to address 0x0C\n");
+        printf("  'n' - Next animation mode\n");
         printf("  's' - Scan I2C bus\n");
         printf("  'r' - Soft reset (re-initialize systems)\n");
         printf("  'd' - Debug info (system status)\n");
         printf("  'z' - Reset to bootloader mode\n");
         printf("  'h' - Show this help\n");
+    } else if (c == 'n') {
+        next_animation_mode();
+        printf("Animation mode: %s\n", get_animation_mode_name());
     } else if (c == 'z') {
         printf("Resetting to bootloader mode (BOOTSEL)...\n");
         sleep_ms(100);  // Give time for message to be sent (bootloader exception)
@@ -195,6 +222,9 @@ void run_main_loop() {
         return;
     }
     
+    // Core 0: Handle encoder interrupts and serial commands
+    // Core 1: Handle LED animations (runs in parallel)
+    
     // Toggle onboard LED for status indication
 #ifdef PICO_DEFAULT_LED_PIN
     gpio_put(PICO_DEFAULT_LED_PIN, toggle);
@@ -208,6 +238,7 @@ void run_main_loop() {
     update_encoder_system();
     
     // No delays - pure interrupt-driven realtime operation
+    // LED animations are handled on Core 1 in parallel
 }
 
 bool is_system_ready() {

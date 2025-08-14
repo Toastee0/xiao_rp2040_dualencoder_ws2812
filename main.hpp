@@ -19,7 +19,7 @@
 
 // WS2812 LED strip configuration
 #define WS2812_PIN 0
-#define NUM_LEDS 117
+#define NUM_LEDS 107
 
 // I2C configuration for encoders
 #define I2C_SDA_GPIO 6

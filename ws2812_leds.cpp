@@ -13,10 +13,14 @@
 #include "ws2812.pio.h"
 #include <stdio.h>
 #include <math.h>
+#include <cmath>
 
 // ===================================================================
 // ================ SYSTEM CONSTANTS AND GLOBALS ===================
 // ===================================================================
+
+// Global brightness limiter (0-255, 128 = 50%)
+#define GLOBAL_BRIGHTNESS_LIMIT 128
 
 // Use WS2812 configuration from main.hpp
 static PIO pio = pio0;
@@ -29,7 +33,21 @@ static uint32_t led_buffer[NUM_LEDS];
 // Animation system state
 static AnimationMode current_mode = RAINBOW_CYCLE;
 static uint32_t animation_counter = 0;
-static uint32_t last_encoder_values[4] = {0};
+
+// Pixel art object storage
+static PixelObject pixel_objects[MAX_PIXEL_OBJECTS];
+static EncoderControlState encoder_state = {0, 0, 3, 0}; // Start with size 3
+
+// Animation mode names for display
+static const char* animation_mode_names[] = {
+    "LED OFF",
+    "Rainbow Cycle", 
+    "Color Wipe",
+    "Theater Chase",
+    "Sparkle",
+    "Pulse",
+    "Encoder Control"
+};
 
 // Color constants
 #define COLOR_BLACK    0x000000
@@ -131,18 +149,29 @@ void set_led_range(uint16_t start, uint16_t end, uint32_t color) {
     }
 }
 
-// Push LED buffer to hardware (non-blocking)
+// Push LED buffer to hardware (non-blocking) with global brightness limit
 void update_leds() {
     if (!ws2812_initialized) return;
     
     for (int i = 0; i < NUM_LEDS; i++) {
-        pio_sm_put_blocking(pio, sm, led_buffer[i] << 8u);
+        // Apply global brightness limit (50%)
+        uint32_t color = led_buffer[i];
+        uint8_t r = ((color >> 8) & 0xFF) * GLOBAL_BRIGHTNESS_LIMIT / 255;
+        uint8_t g = ((color >> 16) & 0xFF) * GLOBAL_BRIGHTNESS_LIMIT / 255;
+        uint8_t b = (color & 0xFF) * GLOBAL_BRIGHTNESS_LIMIT / 255;
+        
+        uint32_t dimmed_color = rgb_to_grb(r, g, b);
+        pio_sm_put_blocking(pio, sm, dimmed_color << 8u);
     }
 }
 
 // ===================================================================
 // ================ ANIMATION FUNCTIONS =============================
 // ===================================================================
+
+// Helper function declarations
+static void render_pixel_object(const PixelObject* obj);
+static void render_object_at_position(uint16_t position, uint8_t size, uint32_t color, uint8_t brightness);
 
 // Rainbow cycle animation
 static void animate_rainbow_cycle() {
@@ -266,6 +295,145 @@ static void animate_fire_effect() {
     animation_counter++;
 }
 
+// Color wipe animation - fill strip sequentially
+static void animate_color_wipe() {
+    static uint16_t wipe_position = 0;
+    static uint8_t wipe_color_index = 0;
+    static uint32_t wipe_colors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW, COLOR_CYAN, COLOR_MAGENTA};
+    
+    uint32_t current_color = wipe_colors[wipe_color_index];
+    
+    // Fill from 0 to current position
+    for (uint16_t i = 0; i <= wipe_position; i++) {
+        led_buffer[i] = current_color;
+    }
+    
+    // Clear the rest
+    for (uint16_t i = wipe_position + 1; i < NUM_LEDS; i++) {
+        led_buffer[i] = COLOR_BLACK;
+    }
+    
+    wipe_position++;
+    if (wipe_position >= NUM_LEDS) {
+        wipe_position = 0;
+        wipe_color_index = (wipe_color_index + 1) % 6;
+    }
+}
+
+// Sparkle animation - random twinkling
+static void animate_sparkle() {
+    // Fade all LEDs slightly
+    for (int i = 0; i < NUM_LEDS; i++) {
+        led_buffer[i] = dim_color(led_buffer[i], 240); // 94% brightness
+    }
+    
+    // Add random sparkles
+    if ((animation_counter % 8) == 0) { // Every 8 frames
+        uint16_t sparkle_led = animation_counter % NUM_LEDS;
+        uint32_t sparkle_color = hsv_to_grb(animation_counter * 13, 255, 255);
+        led_buffer[sparkle_led] = sparkle_color;
+    }
+    
+    animation_counter++;
+}
+
+// Pulse animation - breathing effect
+static void animate_pulse() {
+    uint8_t brightness = (uint8_t)(128 + 127 * sin(animation_counter * 0.1));
+    uint32_t pulse_color = hsv_to_grb((animation_counter / 4) % 256, 255, brightness);
+    
+    for (int i = 0; i < NUM_LEDS; i++) {
+        led_buffer[i] = pulse_color;
+    }
+    
+    animation_counter++;
+}
+
+// Encoder control mode - interactive pixel art editor
+static void animate_encoder_control() {
+    clear_leds();
+    
+    // Get current encoder values
+    const EncoderData* enc1 = get_encoder_data(0); // Position
+    const EncoderData* enc2 = get_encoder_data(1); // Color  
+    const EncoderData* enc3 = get_encoder_data(2); // Size
+    const EncoderData* enc4 = get_encoder_data(3); // Save/Delete
+    
+    if (enc1) {
+        // Update position (0 to NUM_LEDS-1)
+        encoder_state.current_position = ((enc1->counter % NUM_LEDS) + NUM_LEDS) % NUM_LEDS;
+    }
+    
+    if (enc2) {
+        // Update color hue (0-255)
+        encoder_state.current_hue = ((enc2->counter * 8) % 256 + 256) % 256;
+    }
+    
+    if (enc3) {
+        // Update size (1-20 pixels)
+        int32_t size = enc3->counter;
+        if (size < 1) size = 1;
+        if (size > 20) size = 20;
+        encoder_state.current_size = (uint8_t)size;
+    }
+    
+    if (enc4) {
+        // Handle save/delete on encoder 4 delta
+        int32_t delta4 = enc4->counter - encoder_state.last_encoder4_value;
+        if (delta4 > 0) {
+            // Positive rotation - save object and reset position
+            save_current_pixel_object();
+            encoder_state.current_position = 0;
+        } else if (delta4 < 0) {
+            // Negative rotation - delete object at current position
+            delete_pixel_object_at_position(encoder_state.current_position);
+        }
+        encoder_state.last_encoder4_value = enc4->counter;
+    }
+    
+    // Render all saved pixel objects
+    for (int i = 0; i < MAX_PIXEL_OBJECTS; i++) {
+        if (pixel_objects[i].active) {
+            render_pixel_object(&pixel_objects[i]);
+        }
+    }
+    
+    // Render current editing object (preview)
+    uint32_t preview_color = hsv_to_grb(encoder_state.current_hue, 255, 128); // Dimmer for preview
+    render_object_at_position(encoder_state.current_position, encoder_state.current_size, preview_color, 128);
+}
+
+// Helper function to render a pixel object
+static void render_pixel_object(const PixelObject* obj) {
+    uint32_t color = rgb_to_grb(obj->red, obj->green, obj->blue);
+    render_object_at_position(obj->position, obj->size, color, obj->brightness);
+}
+
+// Helper function to render an object at a specific position with fading
+static void render_object_at_position(uint16_t position, uint8_t size, uint32_t color, uint8_t brightness) {
+    int16_t half_size = size / 2;
+    
+    for (int16_t offset = -half_size; offset <= half_size; offset++) {
+        int16_t led_pos = position + offset;
+        
+        // Handle wrapping
+        if (led_pos < 0) led_pos += NUM_LEDS;
+        if (led_pos >= NUM_LEDS) led_pos -= NUM_LEDS;
+        
+        // Calculate fade based on distance from center
+        uint8_t fade = 255;
+        if (size > 1) {
+            fade = 255 - (abs(offset) * 255 / half_size);
+        }
+        
+        uint8_t final_brightness = (brightness * fade) / 255;
+        uint32_t faded_color = dim_color(color, final_brightness);
+        
+        // Blend with existing color (for overlapping objects)
+        led_buffer[led_pos] = blend_colors(led_buffer[led_pos], faded_color, final_brightness);
+    }
+}
+
 // ===================================================================
 // ================ PUBLIC API IMPLEMENTATION ======================
 // ===================================================================
@@ -302,6 +470,85 @@ bool init_ws2812_system() {
     return true;
 }
 
+// ===================================================================
+// ================ ANIMATION MODE CONTROL ==========================
+// ===================================================================
+
+void next_animation_mode() {
+    current_mode = (AnimationMode)((current_mode + 1) % 7); // 7 total modes
+    animation_counter = 0; // Reset animation counter
+    clear_leds(); // Clear screen when switching modes
+    
+    // Initialize encoder control mode if selected
+    if (current_mode == ENCODER_CONTROL) {
+        encoder_state.current_position = 0;
+        encoder_state.current_hue = 0;
+        encoder_state.current_size = 3;
+        encoder_state.last_encoder4_value = 0;
+    }
+}
+
+AnimationMode get_current_animation_mode() {
+    return current_mode;
+}
+
+const char* get_animation_mode_name() {
+    return animation_mode_names[current_mode];
+}
+
+// ===================================================================
+// ================ PIXEL OBJECT MANAGEMENT =========================
+// ===================================================================
+
+void save_current_pixel_object() {
+    // Find an empty slot
+    for (int i = 0; i < MAX_PIXEL_OBJECTS; i++) {
+        if (!pixel_objects[i].active) {
+            pixel_objects[i].active = true;
+            pixel_objects[i].position = encoder_state.current_position;
+            pixel_objects[i].size = encoder_state.current_size;
+            
+            // Convert HSV to RGB
+            uint32_t color = hsv_to_grb(encoder_state.current_hue, 255, 255);
+            pixel_objects[i].red = (color >> 8) & 0xFF;
+            pixel_objects[i].green = (color >> 16) & 0xFF;
+            pixel_objects[i].blue = color & 0xFF;
+            pixel_objects[i].brightness = 255;
+            
+            printf("Saved object %d: pos=%d, size=%d, color=HSV(%d)\n", 
+                   i, encoder_state.current_position, encoder_state.current_size, encoder_state.current_hue);
+            return;
+        }
+    }
+    printf("Object storage full (max %d objects)\n", MAX_PIXEL_OBJECTS);
+}
+
+void delete_pixel_object_at_position(uint16_t position) {
+    for (int i = 0; i < MAX_PIXEL_OBJECTS; i++) {
+        if (pixel_objects[i].active && pixel_objects[i].position == position) {
+            pixel_objects[i].active = false;
+            printf("Deleted object %d at position %d\n", i, position);
+            return;
+        }
+    }
+    printf("No object found at position %d\n", position);
+}
+
+void clear_all_pixel_objects() {
+    for (int i = 0; i < MAX_PIXEL_OBJECTS; i++) {
+        pixel_objects[i].active = false;
+    }
+    printf("All pixel objects cleared\n");
+}
+
+uint8_t get_active_object_count() {
+    uint8_t count = 0;
+    for (int i = 0; i < MAX_PIXEL_OBJECTS; i++) {
+        if (pixel_objects[i].active) count++;
+    }
+    return count;
+}
+
 void update_ws2812_system() {
     if (!ws2812_initialized) return;
     
@@ -310,20 +557,20 @@ void update_ws2812_system() {
         case RAINBOW_CYCLE:
             animate_rainbow_cycle();
             break;
-        case ENCODER_POSITION:
-            animate_encoder_position();
-            break;
-        case ENCODER_DELTA:
-            animate_encoder_delta();
+        case COLOR_WIPE:
+            animate_color_wipe();
             break;
         case THEATER_CHASE:
             animate_theater_chase();
             break;
-        case SOLID_COLOR:
-            animate_solid_color();
+        case SPARKLE:
+            animate_sparkle();
             break;
-        case FIRE_EFFECT:
-            animate_fire_effect();
+        case PULSE:
+            animate_pulse();
+            break;
+        case ENCODER_CONTROL:
+            animate_encoder_control();
             break;
         case LED_OFF:
         default:
@@ -338,25 +585,7 @@ void update_ws2812_system() {
 void set_animation_mode(AnimationMode mode) {
     current_mode = mode;
     animation_counter = 0;  // Reset animation counter
-    
-    const char* mode_names[] = {
-        "OFF", "Rainbow Cycle", "Encoder Position", 
-        "Encoder Delta", "Theater Chase", "Solid Color", "Fire Effect"
-    };
-    
-    if (mode < sizeof(mode_names) / sizeof(mode_names[0])) {
-        printf("Animation mode: %s\n", mode_names[mode]);
-    }
-}
-
-AnimationMode get_animation_mode() {
-    return current_mode;
-}
-
-void cycle_animation_mode() {
-    AnimationMode next_mode = (AnimationMode)((current_mode + 1) % FIRE_EFFECT + 1);
-    if (next_mode > FIRE_EFFECT) next_mode = LED_OFF;
-    set_animation_mode(next_mode);
+    printf("Animation mode: %s\n", animation_mode_names[mode]);
 }
 
 void set_all_leds_color(uint32_t color) {
@@ -375,18 +604,6 @@ void set_led_brightness(uint8_t brightness) {
 
 bool is_ws2812_ready() {
     return ws2812_initialized;
-}
-
-// ===================================================================
-// ================ ADVANCED ANIMATION FUNCTIONS ===================
-// ===================================================================
-
-void set_encoder_led_visualization() {
-    set_animation_mode(ENCODER_POSITION);
-}
-
-void set_encoder_speed_visualization() {
-    set_animation_mode(ENCODER_DELTA);
 }
 
 void test_led_pattern() {

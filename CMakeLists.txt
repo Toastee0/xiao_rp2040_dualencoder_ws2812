@@ -46,6 +46,7 @@ add_subdirectory("../pimoroni-pico/common" pimoroni_common_lib)
 target_link_libraries(led_encoder
 	pico_stdlib
 	pico_bootrom
+	pico_multicore
 	breakout_encoder
 	hardware_pio
 	hardware_i2c

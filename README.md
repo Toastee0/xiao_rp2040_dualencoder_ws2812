@@ -1,69 +1,87 @@
-# XIAO RP2040 Multi-Encoder LED Animation System
+# XIAO RP2040 Dual-Core 4-Encoder WS2812 Animation System
 
-A scalable encoder system for the Seeed XIAO RP2040 that supports 1-4 rotary encoders with WS2812 LED strip animation.
+## Overview
+This project implements a real-time LED animation system using 4 rotary encoders and a WS2812 LED strip on the Seeed XIAO RP2040. The system uses both cores of the RP2040 for optimal performance.
 
-## Pin Configuration
+## Hardware Configuration
+- **WS2812 LED Strip**: GPIO 0 (107 LEDs)
+- **Encoder 1**: I2C Address 0x0F, IRQ GPIO 1
+- **Encoder 2**: I2C Address 0x0E, IRQ GPIO 2  
+- **Encoder 3**: I2C Address 0x0D, IRQ GPIO 3
+- **Encoder 4**: I2C Address 0x0C, IRQ GPIO 4
+- **I2C Bus**: SDA GPIO 6, SCL GPIO 7
 
-### Fixed Pins
-- **I2C**: SDA=GPIO6, SCL=GPIO7 (XIAO RP2040 default)
-- **WS2812 LED Strip**: GPIO1
-- **LED Count**: 117 LEDs (configurable in code)
+## Dual-Core Architecture
+- **Core 0**: Handles encoder interrupts, I2C communication, and serial terminal
+- **Core 1**: Dedicated to WS2812 LED animations and rendering
 
-### Encoder Pins
-| Encoder | GPIO Pin | I2C Address |
-|---------|----------|-------------|
-| 1       | GPIO26   | 0x0F        |
-| 2       | GPIO27   | 0x0E        |
-| 3       | GPIO0    | 0x0D        |
-| 4       | GPIO29   | 0x0C        |
+## LED Animation Modes
 
-## Configuration
+### 1. Built-in Animations
+The system includes several preset animations that cycle automatically:
+- **Rainbow Cycle**: Smooth rainbow wave across the strip
+- **Color Wipe**: Sequential LED color filling
+- **Theater Chase**: Moving dot patterns
+- **Sparkle**: Random twinkling effects
+- **Pulse**: Breathing color effects
 
-### Number of Encoders
-Edit `led_encoder.cpp` and change:
-```cpp
-#define NUMBER_OF_ENCODERS 2  // Set to 1, 2, 3, or 4
-```
+### 2. Encoder Control Mode
+Interactive mode where encoders control LED parameters in real-time:
 
-### LED Animation Modes
-- **1 Encoder**: Single white ball with trails
-- **2 Encoders**: Dual colored balls (cyan/magenta)
-- **3-4 Encoders**: Multi-colored balls (red/green/blue/yellow)
+#### Encoder Functions:
+- **Encoder 1**: Position selector (0-106) - selects which LED pixel to edit
+- **Encoder 2**: Color selector - HSV hue value for RGB color selection
+- **Encoder 3**: Object size (1-20 pixels) - width of light object with center dimming
+- **Encoder 4**: Object management
+  - **Positive rotation**: Save current pixel art state to object array, reset position to LED 0
+  - **Negative rotation**: Delete the pixel object at current position
 
-## USB Terminal Commands
+#### Pixel Art System:
+- **Object Array**: Stores up to 16 pixel art objects
+- **Object Storage**: Each object contains position, size, RGB color values, brightness fade pattern
+- **Real-time Rendering**: Core 1 continuously renders all stored objects onto the LED strip
+- **Interactive Editing**: Live preview while adjusting position, color, and size
 
-Connect via USB serial terminal (115200 baud):
+## Serial Terminal Commands
+- `'n'` - Next animation mode (cycles through built-in animations and encoder mode)
+- `'s'` - Scan I2C bus for encoder devices
+- `'r'` - Soft reset system
+- `'d'` - Debug info (system status, encoder values)
+- `'z'` - Reset to bootloader mode
+- `'h'` - Show help menu
+- `'a1'-'a4'` - Set encoder addresses
 
-### Address Configuration
-- `a1` - Set encoder 1 to address 0x0F
-- `a2` - Set encoder 2 to address 0x0E  
-- `a3` - Set encoder 3 to address 0x0D
-- `a4` - Set encoder 4 to address 0x0C
+## Technical Features
 
-### System Commands
-- `s` - Scan I2C bus for connected devices
-- `h` - Show help menu
-- `z` - Reset to bootloader mode (BOOTSEL)
+### Real-time Performance
+- **Hardware Interrupts**: Instant encoder response on all 4 channels
+- **Non-blocking I/O**: No delays in main loops
+- **Dual-core Processing**: Parallel encoder and LED processing
+- **DMA-based WS2812**: Smooth LED updates without CPU blocking
 
-## Hardware Setup
+### Object Rendering System
+- **Layered Rendering**: Multiple objects can overlap
+- **Center Dimming**: Objects fade from center outward based on size
+- **Color Blending**: Overlapping objects blend colors additively
+- **Persistent Storage**: Objects remain until explicitly deleted
 
-1. **Connect I2C**: Breakout encoder SDA→GPIO6, SCL→GPIO7
-2. **Connect Interrupts**: Encoder INT pin to corresponding GPIO (26-29)
-3. **Connect Power**: VCC and GND to encoder boards
-4. **Connect LED Strip**: WS2812 data pin to GPIO1
-5. **Set Addresses**: Use `a1`-`a4` commands to configure encoder addresses
+## Build Instructions
+1. Install Pico SDK and CMake
+2. Run `.\build_breakout_encoder.ps1`
+3. Flash `led_encoder.uf2` to XIAO RP2040 in bootloader mode
 
-## Build
+## Usage Examples
 
-```bash
-./build_breakout_encoder.ps1
-```
+### Creating Pixel Art:
+1. Use command `'n'` to enter encoder control mode
+2. Turn **Encoder 1** to select LED position
+3. Turn **Encoder 2** to choose color
+4. Turn **Encoder 3** to set object size
+5. Turn **Encoder 4** positive to save object
+6. Repeat to create multiple objects
+7. Turn **Encoder 4** negative to delete objects
 
-## Features
-
-- ✅ Hardware interrupt-driven (no polling)
-- ✅ Configurable 1-4 encoder support
-- ✅ Real-time LED animation with persistence trails
-- ✅ Non-blocking main loop for maximum responsiveness
-- ✅ USB terminal configuration interface
-- ✅ Automatic encoder detection and initialization
+### Animation Viewing:
+1. Use command `'n'` to cycle through built-in animations
+2. Encoders show real-time interrupt activity in terminal
+3. Each animation runs independently on Core 1
