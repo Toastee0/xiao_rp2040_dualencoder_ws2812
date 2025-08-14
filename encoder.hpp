@@ -13,10 +13,10 @@
 // Default GPIO pins for encoder interrupts (user can override)
 #ifndef ENCODER_IRQ_GPIOS
 static const uint8_t ENCODER_IRQ_GPIOS[4] = {
-    26,    // Encoder 1 interrupt GPIO (connect encoder 1 INT pin here)
-    27,    // Encoder 2 interrupt GPIO (connect encoder 2 INT pin here) 
-    0,     // Encoder 3 interrupt GPIO (connect encoder 3 INT pin here)
-    29     // Encoder 4 interrupt GPIO (connect encoder 4 INT pin here)
+    1,    // Encoder 1 interrupt GPIO (connect encoder 1 INT pin here)
+    2,    // Encoder 2 interrupt GPIO (connect encoder 2 INT pin here) 
+    3,     // Encoder 3 interrupt GPIO (connect encoder 3 INT pin here)
+    4     // Encoder 4 interrupt GPIO (connect encoder 4 INT pin here)
 };
 #endif
 

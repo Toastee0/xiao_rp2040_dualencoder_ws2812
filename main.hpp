@@ -12,13 +12,13 @@
 #define NUMBER_OF_ENCODERS 4
 
 // Encoder interrupt GPIO pins - configure these for your hardware
-#define ENCODER_1_IRQ_GPIO 26
-#define ENCODER_2_IRQ_GPIO 27
-#define ENCODER_3_IRQ_GPIO 0
-#define ENCODER_4_IRQ_GPIO 29
+#define ENCODER_1_IRQ_GPIO 1
+#define ENCODER_2_IRQ_GPIO 2
+#define ENCODER_3_IRQ_GPIO 3
+#define ENCODER_4_IRQ_GPIO 4
 
 // WS2812 LED strip configuration
-#define WS2812_PIN 1
+#define WS2812_PIN 0
 #define NUM_LEDS 117
 
 // I2C configuration for encoders

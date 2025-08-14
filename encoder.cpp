@@ -58,9 +58,9 @@ static pimoroni::BreakoutEncoder* encoder_instances[4] = {nullptr};
 void gpio_irq_callback(uint gpio, uint32_t events) {
     // Find which encoder triggered the interrupt
     for (int i = 0; i < NUMBER_OF_ENCODERS; i++) {
-        if (gpio == ENCODER_IRQ_PINS[i] && encoders[i].ready) {
-            irq_triggered[i] = true;
-            break;
+        if (gpio == ENCODER_IRQ_PINS[i]) {
+            irq_triggered[i] = true;  // Set flag for main loop to process
+            break;  // Found the pin, no need to continue searching
         }
     }
 }
@@ -205,27 +205,6 @@ static bool init_single_encoder(uint8_t encoder_idx) {
     return true;
 }
 
-// Setup GPIO interrupts for all ready encoders
-static void setup_encoder_interrupts() {
-    bool first_interrupt = true;
-    
-    for (int i = 0; i < NUMBER_OF_ENCODERS; i++) {
-        if (encoders[i].ready) {
-            uint8_t irq_pin = ENCODER_IRQ_PINS[i];
-            
-            if (first_interrupt) {
-                // First encoder: set callback and enable interrupt
-                gpio_set_irq_enabled_with_callback(irq_pin, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true, &gpio_irq_callback);
-                printf("✓ GPIO %d interrupt enabled with callback\n", irq_pin);
-                first_interrupt = false;
-            } else {
-                // Subsequent encoders: just enable interrupt (callback already set)
-                gpio_set_irq_enabled(irq_pin, GPIO_IRQ_EDGE_RISE | GPIO_IRQ_EDGE_FALL, true);
-                printf("✓ GPIO %d interrupt enabled\n", irq_pin);
-            }
-        }
-    }
-}
 
 // HSV to RGB conversion function
 static void hsv_to_rgb(float h, float s, float v, uint8_t* r, uint8_t* g, uint8_t* b) {
@@ -348,17 +327,28 @@ bool init_encoder_system() {
 void update_encoder_system() {
     // Check each encoder for pending interrupts
     for (int i = 0; i < NUMBER_OF_ENCODERS; i++) {
-        if (irq_triggered[i] && encoders[i].ready) {
-            irq_triggered[i] = false;  // Clear interrupt flag
-            printf("[IRQ%d-GPIO%d] ", i + 1, ENCODER_IRQ_PINS[i]);  // Debug info
+        if (irq_triggered[i]) {
+            // Print info about which interrupt was received
+            printf("[IRQ%d-GPIO%d] Interrupt received for encoder %d ", 
+                   i + 1, ENCODER_IRQ_PINS[i], i + 1);
             
-            int32_t old_counter = encoders[i].counter;
-            read_encoder_counter(i);   // Update counter value
+            // Clear the interrupt flag (main loop clears the flag)
+            irq_triggered[i] = false;
             
-            if (encoders[i].counter != old_counter) {
+            // Read the encoder value using BreakoutEncoder library method
+            int32_t new_counter = encoder_instances[i]->read();
+            encoder_instances[i]->clear_interrupt_flag();
+            
+            if (new_counter != encoders[i].counter) {
+                encoders[i].previous_counter = encoders[i].counter;
+                encoders[i].counter = new_counter;
+                encoders[i].delta = new_counter - encoders[i].previous_counter;
+                
                 printf("ENC%d CHANGED: %ld->%ld (delta:%ld) ", 
-                       i + 1, old_counter, encoders[i].counter, encoders[i].delta);
+                       i + 1, encoders[i].previous_counter, encoders[i].counter, encoders[i].delta);
                 update_encoder_rgb(i);     // Update RGB LED based on position
+            } else {
+                printf("ENC%d no change (still %ld) ", i + 1, encoders[i].counter);
             }
         }
     }
